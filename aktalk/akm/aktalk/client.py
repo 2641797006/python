@@ -6,7 +6,8 @@ import socket, os, sys, signal, time
 from threading import Thread
 from queue import Queue
 from enum import IntEnum,unique
-from ..aktalk.mmsock import *
+from .mmsock import *
+from .mmsock import update_password_by_time
 from ..akes import Akes
 from ..io.o import *
 from ..io import fm
@@ -426,10 +427,10 @@ def main(argv):
             print('missing argument after \''+optstr+'\'')
             sys.exit(1)
 
-    from Crypto.Hash import SHA512 as hashalgo
-    ha = hashalgo.new()
-    ha.update(password.encode())
-    password = ha.digest()[:32]
+    seed_arr = [0, 1, 2]
+    pwd_arr = [0, 1, 2]
+    update_password_by_time(password, seed_arr, pwd_arr)
+    password = pwd_arr[1]
     print('password =', password)
 
     sock = socket.socket()

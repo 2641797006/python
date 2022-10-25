@@ -2,10 +2,38 @@
 
 __all__ = ('MM_TMOUT', 'MM_HP', 'MMT', 'mm_setblocking', 'socket_reuse', 'MMSock')
 
+import time
+from Crypto.Hash import SHA512 as hashalgo
 from enum import IntEnum,unique
 from ..debug.cdb import *
 
 set_debug(0)
+
+
+def update_password_by_time(password, seed_arr, pwd_arr):
+    t = time.time()
+
+    t1 = time.localtime(t)
+    seed_arr_1 = '%04d%02d%02d~%02d:%02d:%02d' % (t1.tm_year, t1.tm_mon, t1.tm_mday, t1.tm_hour, t1.tm_min, 24)
+    if seed_arr[1] == seed_arr_1:
+        return
+
+    t0 = time.localtime(t - 60)
+    t2 = time.localtime(t + 60)
+    seed_arr[0] = '%04d%02d%02d~%02d:%02d:%02d' % (t0.tm_year, t0.tm_mon, t0.tm_mday, t0.tm_hour, t0.tm_min, 24)
+    seed_arr[1] = seed_arr_1
+    seed_arr[2] = '%04d%02d%02d~%02d:%02d:%02d' % (t2.tm_year, t2.tm_mon, t2.tm_mday, t2.tm_hour, t2.tm_min, 24)
+    salt = 'akm 24k ABC'
+    ha0 = hashalgo.new()
+    ha0.update(f'{password} {seed_arr[0]} {salt}'.encode())
+    pwd_arr[0] = ha0.digest()[:32]
+    ha1 = hashalgo.new()
+    ha1.update(f'{password} {seed_arr[1]} {salt}'.encode())
+    pwd_arr[1] = ha1.digest()[:32]
+    ha2 = hashalgo.new()
+    ha2.update(f'{password} {seed_arr[2]} {salt}'.encode())
+    pwd_arr[2] = ha2.digest()[:32]
+
 
 block_state = True
 def mm_setblocking(flag):

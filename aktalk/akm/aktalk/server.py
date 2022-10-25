@@ -4,8 +4,8 @@ __all__ = ('OPT', 'help', 'main')
 
 import selectors, socket, sys, time
 from enum import IntEnum,unique
-#from akm.aktalk.mmsock import *
 from .mmsock import *
+from .mmsock import update_password_by_time
 from ..debug.cdb import *
 
 # debug on/off
@@ -18,7 +18,11 @@ mmsocks = []
 # mmsock hp
 mm_hp = MM_HP
 # password auth
-mm_password = None # sha512sum('000000').digest()[:32], 256bit
+mm_password = None
+password_seed_arr = ['-1min', '0', '+1min']
+password_arr = ['*', '*', '*']
+    # sha512sum('000000').digest()[:32], 256bit
+
 
 def accept(sock, mask):
     conn, addr = sock.accept()  # Should be ready
@@ -43,10 +47,20 @@ def read(conn, mask):
         ret = 1
 
         if not mmconn.is_auth:
-            if mmt == MMT.SM_AUTH and data == mm_password:
+            pwd_index = -1
+            if mmt == MMT.SM_AUTH and data:
+                update_password_by_time(mm_password, password_seed_arr, password_arr)
+                if data == password_arr[1]:
+                    pwd_index = 1
+                elif data == password_arr[0]:
+                    pwd_index = 0
+                elif data == password_arr[2]:
+                    pwd_index = 2
+
+            if pwd_index >= 0:
                 mmconn.is_auth = True
                 mmconn.sendsem(MMT.SM_AUTH_OK)
-                print('Auth OK:', addr)
+                print('Auth OK: pwd_index =', pwd_index, addr)
                 mmsocks.append(mmconn)
                 ipaddr,port = mmconn.raddr()
                 mmconn.send(str(ipaddr).encode(), MMT.CLIENT_ADDR)
@@ -217,11 +231,11 @@ def main(argv):
             print('missing argument after \''+optstr+'\'')
             sys.exit(1)
 
-    from Crypto.Hash import SHA512 as hashalgo
-    ha = hashalgo.new()
-    ha.update(password.encode())
-    mm_password = ha.digest()[:32]
-    print('password =', mm_password)
+    mm_password = password
+    update_password_by_time(mm_password, password_seed_arr, password_arr)
+    print('password[0] =', password_arr[0])
+    print('password[1] =', password_arr[1])
+    print('password[2] =', password_arr[2])
 
     sock = socket.socket()
     socket_reuse(sock)
