@@ -2,10 +2,11 @@
 
 __all__ = ('OPT', 'help', 'main')
 
-import selectors, socket, sys, time
+import selectors, socket, sys, time, string, random
 from enum import IntEnum,unique
 from .mmsock import *
 from .mmsock import update_password_by_time
+from .mmsock import gen_password_with_salt
 from ..debug.cdb import *
 
 # debug on/off
@@ -22,13 +23,21 @@ mm_password = None
 password_seed_arr = ['-1min', '0', '+1min']
 password_arr = ['*', '*', '*']
     # sha512sum('000000').digest()[:32], 256bit
+pwd_dict = {}
 
+allowed_chars = string.ascii_letters + string.digits*2
+def gen_random_string(str_size):
+    return ''.join(random.choice(allowed_chars) for x in range(str_size))
 
 def accept(sock, mask):
     conn, addr = sock.accept()  # Should be ready
     print('accepted', addr)
     conn.setblocking(False)
+    mmconn = MMSock(conn)
+    rand_salt = gen_random_string(32)
+    pwd_dict[conn] = gen_password_with_salt(mm_password, rand_salt)
     selector.register(conn, selectors.EVENT_READ, read)
+    mmconn.send(rand_salt.encode(), MMT.SM_RAND_SALT)
 
 def read(conn, mask):
     '''[noexcept]'''
@@ -47,32 +56,25 @@ def read(conn, mask):
         ret = 1
 
         if not mmconn.is_auth:
-            pwd_index = -1
+            if mmt == MMT.HEART_BEAT:
+                return
             if mmt == MMT.SM_AUTH and data:
-                update_password_by_time(mm_password, password_seed_arr, password_arr)
-                if data == password_arr[1]:
-                    pwd_index = 1
-                elif data == password_arr[0]:
-                    pwd_index = 0
-                elif data == password_arr[2]:
-                    pwd_index = 2
-
-            if pwd_index >= 0:
-                mmconn.is_auth = True
-                mmconn.sendsem(MMT.SM_AUTH_OK)
-                print('Auth OK: pwd_index =', pwd_index, addr)
-                mmsocks.append(mmconn)
-                ipaddr,port = mmconn.raddr()
-                mmconn.send(str(ipaddr).encode(), MMT.CLIENT_ADDR)
-                cn = len(mmsocks)
-                if cn > 2:
-                    mmsocks[-1].sendsem(MMT.SM_BUSY)
-                elif cn > 1:
-                    mmsocks[0].sendsem(MMT.SM_SYMGEN)
-                    mmsocks[1].sendsem(MMT.SM_PUBGEN)
-                else:
-                    mmsocks[0].sendsem(MMT.SM_NONE)
-            else:
+                if data == pwd_dict[conn]:
+                    mmconn.is_auth = True
+                    mmconn.sendsem(MMT.SM_AUTH_OK)
+                    print('Auth OK: password =', data)
+                    mmsocks.append(mmconn)
+                    ipaddr,port = mmconn.raddr()
+                    mmconn.send(str(ipaddr).encode(), MMT.CLIENT_ADDR)
+                    cn = len(mmsocks)
+                    if cn > 2:
+                        mmsocks[-1].sendsem(MMT.SM_BUSY)
+                    elif cn > 1:
+                        mmsocks[0].sendsem(MMT.SM_SYMGEN)
+                        mmsocks[1].sendsem(MMT.SM_PUBGEN)
+                    else:
+                        mmsocks[0].sendsem(MMT.SM_NONE)
+            if not mmconn.is_auth:
                 if mmt != MMT.SM_AUTH:
                     print('Auth fail: no password:', addr)
                 else:
@@ -80,11 +82,13 @@ def read(conn, mask):
                 mmconn.sendsem(MMT.SM_AUTH_FAIL)
                 selector.unregister(mmconn.sock)
                 mmconn.sock.close()
+                pwd = pwd_dict.get(mmconn.sock)
+                if pwd != None:
+                    pwd_dict.pop(mmconn.sock)
             return
 
         if mmt == MMT.HEART_BEAT:
-            i = mmsocks.index(mmconn)
-            mmsocks[i].HP = mm_hp
+            mmconn.HP = mm_hp
         elif mmt == MMT.SM_EXIT:
             print('Exit:', addr)
             close_mmsock(mmconn, MMT.SM_EXIT)
@@ -136,6 +140,9 @@ def close_mmsock(mmconn, sem=MMT.SM_CLOSE):
     except Exception as e:
         print('close_mmsock', e)
         pass
+    pwd = pwd_dict.get(mmconn.sock)
+    if pwd != None:
+        pwd_dict.pop(mmconn.sock)
 
 
 @unique
@@ -232,10 +239,6 @@ def main(argv):
             sys.exit(1)
 
     mm_password = password
-    update_password_by_time(mm_password, password_seed_arr, password_arr)
-    print('password[0] =', password_arr[0])
-    print('password[1] =', password_arr[1])
-    print('password[2] =', password_arr[2])
 
     sock = socket.socket()
     socket_reuse(sock)
@@ -270,6 +273,9 @@ def main(argv):
                 selector.unregister(conn)
                 conn.close()
                 mmsocks.remove(mm)
+                pwd = pwd_dict.get(mmconn.sock)
+                if pwd != None:
+                    pwd_dict.pop(mmconn.sock)
             except Exception as e:
                 print('TMOUT deal:', e)
             cn = len(mmsocks)

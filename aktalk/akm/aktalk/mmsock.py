@@ -10,6 +10,12 @@ from ..debug.cdb import *
 set_debug(0)
 
 
+def gen_password_with_salt(password, salt):
+    fix_salt = 'akm 24k ABC'
+    ha = hashalgo.new()
+    ha.update(f'{password} {salt} {fix_salt}'.encode())
+    return ha.digest()[:32]
+
 def update_password_by_time(password, seed_arr, pwd_arr):
     t = time.time()
 
@@ -86,6 +92,7 @@ class MMT(IntEnum):
     SM_AUTH = 0x2480 # password auth
     SM_AUTH_FAIL = 0x2481 # password auth fail
     SM_AUTH_OK = 0x2482 # password auth fail
+    SM_RAND_SALT = 0x2485 # random auth salt
 
 MAX_RECV = 1024 # Maximum receive size per time
 

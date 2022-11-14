@@ -8,6 +8,7 @@ from queue import Queue
 from enum import IntEnum,unique
 from .mmsock import *
 from .mmsock import update_password_by_time
+from .mmsock import gen_password_with_salt
 from ..akes import Akes
 from ..io.o import *
 from ..io import fm
@@ -37,6 +38,8 @@ wait_print = False
 msg_end = '\n>> '
 # File storage directory
 download_dir = 'download'
+# password
+password = '000000'
 
 
 def send():
@@ -286,6 +289,14 @@ def msg_proc(data, mmt=MMT.PLAIN_TEXT):
     elif mmt == MMT.SERVER_MSG:
         wprint(f'SERVER_MSG<< {data.decode()}', end='')
 
+    elif mmt == MMT.SM_RAND_SALT:
+        rand_salt = data.decode()
+        print('rand_salt =', rand_salt)
+        pwd = gen_password_with_salt(password, rand_salt)
+        print('password =', pwd)
+        print('auth ...')
+        mmsock.send(pwd, MMT.SM_AUTH)
+
     elif mmt == MMT.CLIENT_ADDR:
         my_ip = data.decode()
         ipaddr,port = mmsock.laddr()
@@ -375,11 +386,12 @@ options = {
 
 
 def main(argv):
+    global password
+
     argc = len(argv); optind = 0
 
     ip = '0.0.0.0'
     port = 10024
-    password = '000000'
 
     while optind+1 < argc:
         optind += 1
@@ -427,12 +439,6 @@ def main(argv):
             print('missing argument after \''+optstr+'\'')
             sys.exit(1)
 
-    seed_arr = [0, 1, 2]
-    pwd_arr = [0, 1, 2]
-    update_password_by_time(password, seed_arr, pwd_arr)
-    password = pwd_arr[1]
-    print('password =', password)
-
     sock = socket.socket()
     socket_reuse(sock)
 
@@ -442,9 +448,6 @@ def main(argv):
     global server_addr
     server_addr = (ip, port)
     sock.connect(server_addr)
-
-    print('auth ...')
-    mmsock.send(password, MMT.SM_AUTH)
 
     try:
         t_heart = Thread(target=heart_beat)
